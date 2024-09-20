@@ -4,7 +4,7 @@ from collections import defaultdict
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
-
+import re
 
 # Download stopwords if necessary
 nltk.download('stopwords')
@@ -13,16 +13,15 @@ nltk.download('stopwords')
 stop_words = set(stopwords.words('english'))
 stemmer = PorterStemmer()
 
+# Tokenization with stop word removal and stemming
 def tokenize(text):
-    # Split text into tokens (you may want a more robust tokenizer)
-    tokens = text.lower().split()
-    
-    # Remove stopwords and apply stemming
+    tokens = re.findall(r'\b\w+\b', text.lower())  # Lowercase and split on word boundaries
     tokens = [stemmer.stem(token) for token in tokens if token not in stop_words]
-    
     return tokens
+
 index_cache = None
 
+# Build index with caching
 def build_index_if_needed(corpus_path):
     global index_cache
     if index_cache is None:
@@ -59,21 +58,26 @@ def build_index(corpus_path):
     
     return dictionary, doc_lengths, N, doc_id_to_filename
 
-
-
-
 # Step 2: Process the query and compute tf-idf scores
 def process_query(query, dictionary, N):
     tokens = tokenize(query)
-    query_weights = {}
+    term_freqs = defaultdict(int)
     for term in tokens:
+        term_freqs[term] += 1
+    
+    query_weights = {}
+    for term, freq in term_freqs.items():
         if term in dictionary:
             df = dictionary[term]['df']
             idf = math.log10(N / df)
-            tf = tokens.count(term)
-            log_tf = 1 + math.log10(tf)
+            log_tf = 1 + math.log10(freq)
             query_weights[term] = log_tf * idf
-    return query_weights
+    return normalize_query_weights(query_weights)
+
+# Normalize query weights
+def normalize_query_weights(query_weights):
+    norm = math.sqrt(sum(weight**2 for weight in query_weights.values()))
+    return {term: weight / norm for term, weight in query_weights.items()}
 
 # Step 3: Rank documents based on cosine similarity
 def rank_documents(query_weights, dictionary, doc_lengths):
@@ -90,11 +94,6 @@ def rank_documents(query_weights, dictionary, doc_lengths):
     
     ranked_docs = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
     return ranked_docs[:10]
-
-# Step 4: Utility function for tokenization
-def tokenize(text):
-    # Basic tokenization logic (e.g., lowercasing, splitting, removing punctuation)
-    return text.lower().split()
 
 # Main entry point for searching
 def search(query, corpus_path):
@@ -117,9 +116,6 @@ def search(query, corpus_path):
 # Example usage
 if __name__ == '__main__':
     corpus_path = 'corpus'  # Directory containing .txt files
-    # query = "your search query here"
-    # results = search(query, corpus_path)
-    # print("Top 10 documents:", results)
     
     # Test Case 1
     query1 = "Developing your Zomato business account and profile is a great way to boost your restaurant’s online reputation"
