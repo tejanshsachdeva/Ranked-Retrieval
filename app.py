@@ -1,33 +1,64 @@
 import os
 import math
 from collections import defaultdict
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
+
+
+# Download stopwords if necessary
+nltk.download('stopwords')
+
+# Initialize stop words and stemmer
+stop_words = set(stopwords.words('english'))
+stemmer = PorterStemmer()
+
+def tokenize(text):
+    # Split text into tokens (you may want a more robust tokenizer)
+    tokens = text.lower().split()
+    
+    # Remove stopwords and apply stemming
+    tokens = [stemmer.stem(token) for token in tokens if token not in stop_words]
+    
+    return tokens
+index_cache = None
+
+def build_index_if_needed(corpus_path):
+    global index_cache
+    if index_cache is None:
+        index_cache = build_index(corpus_path)
+    return index_cache
 
 # Step 1: Parse the corpus and build dictionary + postings list
 def build_index(corpus_path):
     dictionary = defaultdict(lambda: {'df': 0, 'postings': []})
     doc_lengths = {}
     doc_id_to_filename = {}
-    N = 0  # Total number of documents
+    N = 0
     
     for doc_id, filename in enumerate(os.listdir(corpus_path)):
         if filename.endswith(".txt"):
-            N += 1
-            doc_id_to_filename[doc_id] = filename  # Map doc_id to filename
-            filepath = os.path.join(corpus_path, filename)
-            with open(filepath, 'r', encoding='utf-8') as file:
-                tokens = tokenize(file.read())
-                term_freqs = defaultdict(int)
-                for term in tokens:
-                    term_freqs[term] += 1
-                length = 0
-                for term, freq in term_freqs.items():
-                    log_tf = 1 + math.log10(freq)
-                    length += log_tf ** 2
-                    dictionary[term]['df'] += 1
-                    dictionary[term]['postings'].append((doc_id, freq))
-                doc_lengths[doc_id] = math.sqrt(length)
+            try:
+                N += 1
+                doc_id_to_filename[doc_id] = filename
+                filepath = os.path.join(corpus_path, filename)
+                with open(filepath, 'r', encoding='utf-8') as file:
+                    tokens = tokenize(file.read())
+                    term_freqs = defaultdict(int)
+                    for term in tokens:
+                        term_freqs[term] += 1
+                    length = 0
+                    for term, freq in term_freqs.items():
+                        log_tf = 1 + math.log10(freq)
+                        length += log_tf ** 2
+                        dictionary[term]['df'] += 1
+                        dictionary[term]['postings'].append((doc_id, freq))
+                    doc_lengths[doc_id] = math.sqrt(length)
+            except Exception as e:
+                print(f"Error reading {filename}: {e}")
     
-    return dictionary, doc_lengths, N, doc_id_to_filename  # Return the mapping
+    return dictionary, doc_lengths, N, doc_id_to_filename
+
 
 
 
@@ -67,14 +98,21 @@ def tokenize(text):
 
 # Main entry point for searching
 def search(query, corpus_path):
-    dictionary, doc_lengths, N, doc_id_to_filename = build_index(corpus_path)
+    if not query.strip():
+        return []  # Return an empty list for empty queries
+    
+    dictionary, doc_lengths, N, doc_id_to_filename = build_index_if_needed(corpus_path)
     query_weights = process_query(query, dictionary, N)
+    
+    if not query_weights:  # Handle case where no terms in the query are in the dictionary
+        return []
+    
     ranked_docs = rank_documents(query_weights, dictionary, doc_lengths)
     
-    # Convert doc IDs to filenames for the final output
     results_with_filenames = [(doc_id_to_filename[doc_id], score) for doc_id, score in ranked_docs]
     
     return results_with_filenames
+
 
 # Example usage
 if __name__ == '__main__':
